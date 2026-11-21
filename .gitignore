@@ -20,3 +20,7 @@ target/
 /.horizon/
 # The packaged .hmod build output.
 /target/horizon-mod/
+# Not part of the official project layout (docs/modding/src/reference/manifest.md); the launcher
+# always rebuilds against the pinned SDK commit, so a locked dependency graph for this library
+# crate adds nothing worth tracking.
+/Cargo.lock

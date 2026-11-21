@@ -2,6 +2,17 @@
 //! of saved offline nicknames, so a player can switch which one an offline-mode (cracked) server
 //! sees them join as, and get back to the one they started with in one click.
 //!
+//! ## Why this draws its own overlay instead of `ClientHost::mod_screen_open`
+//! The mod-screen API (`mod_screen_open`/`mod_screen_close`/`mod_screen`) only works "over the
+//! world": its own doc says it returns `false` (opens nothing) "over the title screen" -- and the
+//! server list (`multiplayer`) is part of the title's screen state machine, not a world. Using it
+//! here would silently no-op, which is exactly the bug this file now avoids: this mod keeps its
+//! own `Option<AccountScreen>` as the single source of truth for "is my UI open", draws it with
+//! `screen_render_post` directly on top of the still-open vanilla `multiplayer` screen, and
+//! cancels every mouse/key/char event reaching that screen while it is open, the same way a
+//! client-side overlay mod (a tooltip, a HUD panel) already works without ever calling
+//! `mod_screen_open`.
+//!
 //! ## What this does and does not do
 //! Horizon (like vanilla and every other Minecraft client) only ever enforces a *verified*
 //! identity for a signed-in Microsoft account: on such a connection the account's own name always
@@ -22,18 +33,13 @@ mod sha256;
 
 use mod_api::client::widgets::{Outcome, Widgets};
 use mod_api::{
-    ClientHost, ClientTickPreEvent, Flow, Hooks, ScreenCharTypedPreEvent, ScreenKeyPressedPreEvent,
+    ClientHost, Flow, Hooks, ScreenCharTypedPreEvent, ScreenKeyPressedPreEvent,
     ScreenMouseButtonPressedPreEvent, ScreenMouseButtonReleasedPreEvent, ScreenMouseDraggedPreEvent,
     ScreenRenderPostEvent, Text,
 };
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use screen::AccountScreen;
-
-/// Names this mod's own screen to `ClientHost::mod_screen_open`/`mod_screen`; must match the
-/// `id` in `horizon-mod.toml`.
-const MOD_ID: &str = "account_switcher";
 
 /// `ScreenView::id` of Horizon's server-list screen (`JoinMultiplayerScreen`), stable across
 /// releases by the screen hooks' own contract. See `crates/horizon-client/src/multiplayer.rs`
@@ -63,42 +69,30 @@ fn contains([x, y, w, h]: [f32; 4], [px, py]: [f32; 2]) -> bool {
 
 #[derive(Default)]
 pub struct AccountSwitcher {
-    /// The mod's own screen, while it is open; rebuilt (via `screen::AccountScreen::refresh`)
-    /// after every action so its rows and "aktív" markers always match disk.
+    /// `Some` while our overlay is open on top of the `multiplayer` screen; `None` shows just the
+    /// trigger button. This is the mod's own state, not `ClientHost::mod_screen()` (see the
+    /// module docs for why).
     screen: Mutex<Option<AccountScreen>>,
-    /// The trigger button on the multiplayer screen was pressed: the next client tick opens the
-    /// mod screen (`mod_screen_open` needs `&mut dyn ClientHost`, which the read-only input hooks
-    /// don't get -- same reason `close` below is applied on tick, as in the SDK's own
-    /// `widget_screen` example).
-    open: AtomicBool,
-    /// Vissza was pressed: the next client tick closes the screen.
-    close: AtomicBool,
 }
 
 impl AccountSwitcher {
-    /// Runs `apply` on the open mod screen's widgets and acts on what it answers. Does nothing,
-    /// and tells the caller to let the input through, when our screen isn't the one open.
-    fn input(&self, host: &dyn ClientHost, apply: impl FnOnce(&mut Widgets) -> Outcome) -> Flow {
-        if host.mod_screen() != Some(MOD_ID) {
-            return Flow::Continue;
-        }
+    /// Runs `apply` on the open overlay's widgets and acts on what it answers, when the overlay
+    /// is open. Returns whether it was open (so the caller knows whether it owned the input).
+    fn input(&self, host: &dyn ClientHost, apply: impl FnOnce(&mut Widgets) -> Outcome) -> bool {
         let outcome = {
             let mut guard = self.screen.lock().unwrap();
             let Some(screen) = guard.as_mut() else {
-                return Flow::Continue;
+                return false;
             };
             apply(&mut screen.widgets)
         };
         self.act_on(host, outcome);
-        if outcome.handled() {
-            Flow::Cancel
-        } else {
-            Flow::Continue
-        }
+        true
     }
 
-    /// Applies a button press to the profile store and schedules a rebuild (`screen = None`, so
-    /// the next `screen_render_post` calls `AccountScreen::refresh`) when anything changed.
+    /// Applies a button press to the profile store and rebuilds the overlay
+    /// (`AccountScreen::refresh`) so its rows and the "aktív" marker always match disk right
+    /// after the change.
     fn act_on(&self, host: &dyn ClientHost, outcome: Outcome) {
         let Outcome::Pressed(id) = outcome else {
             return;
@@ -109,7 +103,7 @@ impl AccountSwitcher {
         };
 
         if id == screen.back {
-            self.close.store(true, Ordering::Relaxed);
+            *guard = None;
             return;
         }
 
@@ -172,39 +166,29 @@ impl AccountSwitcher {
 
 #[mod_api::horizon_mod]
 impl Hooks for AccountSwitcher {
-    fn client_tick_pre(&self, host: &mut dyn ClientHost, _: &mut ClientTickPreEvent) {
-        if self.open.swap(false, Ordering::Relaxed) {
-            host.mod_screen_open(MOD_ID);
-        }
-        if self.close.swap(false, Ordering::Relaxed) {
-            host.mod_screen_close(MOD_ID);
-        }
-    }
-
     fn screen_render_post(&self, host: &dyn ClientHost, event: &mut ScreenRenderPostEvent<'_>) {
-        if event.screen.id == MULTIPLAYER_SCREEN {
-            let rect = trigger_rect(event.screen.rect[2]);
+        if event.screen.id != MULTIPLAYER_SCREEN {
+            return;
+        }
+        let [width, height] = event.draw.size();
+        let mut guard = self.screen.lock().unwrap();
+
+        let Some(screen) = guard.as_mut() else {
+            // Not open: just the trigger button, top-right.
+            let rect = trigger_rect(width);
             let highlighted = contains(rect, event.screen.mouse);
             let _ = event
                 .draw
                 .widget_button(rect, &Text::literal("Fiókváltás"), true, highlighted);
             return;
-        }
-
-        if host.mod_screen() != Some(MOD_ID) {
-            return;
-        }
-        let [width, height] = event.draw.size();
-        let mut guard = self.screen.lock().unwrap();
-        let screen =
-            guard.get_or_insert_with(|| AccountScreen::refresh(host, String::new()));
+        };
 
         event.draw.fill([0.0, 0.0, width, height], 0xD000_0000);
         event
             .draw
             .text("Account Switcher", [20.0, 16.0], 0xFFFF_FFFF, true);
         event.draw.text(
-            "Csak offline (cracked) szervereknél számít; bejelentkezett Microsoft-fiók vagy a --name kapcsoló felülírja.",
+            "Csak offline (cracked) szervereknél számít; bejelentkezett Microsoft-fiók vagy a --name kapcsoló felülírja. (Esc vagy Vissza bezárja.)",
             [20.0, height - 40.0],
             0xFF90_9090,
             true,
@@ -222,16 +206,20 @@ impl Hooks for AccountSwitcher {
         host: &dyn ClientHost,
         event: &mut ScreenMouseButtonPressedPreEvent<'_>,
     ) -> Flow {
-        if event.screen.id == MULTIPLAYER_SCREEN {
-            if event.button == 0 && contains(trigger_rect(event.screen.rect[2]), event.screen.mouse) {
-                *self.screen.lock().unwrap() = None;
-                self.open.store(true, Ordering::Relaxed);
-                return Flow::Cancel;
-            }
+        if event.screen.id != MULTIPLAYER_SCREEN {
             return Flow::Continue;
         }
         let (at, button, modifiers) = (event.screen.mouse, event.button, event.modifiers);
-        self.input(host, |w| w.mouse_pressed(host, at, button, modifiers))
+        if self.input(host, |w| w.mouse_pressed(host, at, button, modifiers)) {
+            // The overlay is open: it owns every click on this screen while it is up, so the
+            // server list underneath never also reacts to the same press.
+            return Flow::Cancel;
+        }
+        if button == 0 && contains(trigger_rect(event.screen.rect[2]), event.screen.mouse) {
+            *self.screen.lock().unwrap() = Some(AccountScreen::refresh(host, String::new()));
+            return Flow::Cancel;
+        }
+        Flow::Continue
     }
 
     fn screen_mouse_button_released_pre(
@@ -239,8 +227,14 @@ impl Hooks for AccountSwitcher {
         host: &dyn ClientHost,
         event: &mut ScreenMouseButtonReleasedPreEvent<'_>,
     ) -> Flow {
+        if event.screen.id != MULTIPLAYER_SCREEN {
+            return Flow::Continue;
+        }
         let button = event.button;
-        self.input(host, |w| w.mouse_released(button))
+        if self.input(host, |w| w.mouse_released(button)) {
+            return Flow::Cancel;
+        }
+        Flow::Continue
     }
 
     fn screen_mouse_dragged_pre(
@@ -248,8 +242,14 @@ impl Hooks for AccountSwitcher {
         host: &dyn ClientHost,
         event: &mut ScreenMouseDraggedPreEvent<'_>,
     ) -> Flow {
+        if event.screen.id != MULTIPLAYER_SCREEN {
+            return Flow::Continue;
+        }
         let (at, button) = (event.screen.mouse, event.button);
-        self.input(host, |w| w.mouse_dragged(host, at, button))
+        if self.input(host, |w| w.mouse_dragged(host, at, button)) {
+            return Flow::Cancel;
+        }
+        Flow::Continue
     }
 
     fn screen_key_pressed_pre(
@@ -257,8 +257,18 @@ impl Hooks for AccountSwitcher {
         host: &dyn ClientHost,
         event: &mut ScreenKeyPressedPreEvent<'_>,
     ) -> Flow {
+        if event.screen.id != MULTIPLAYER_SCREEN {
+            return Flow::Continue;
+        }
+        if event.key == "key.keyboard.escape" && self.screen.lock().unwrap().is_some() {
+            *self.screen.lock().unwrap() = None;
+            return Flow::Cancel;
+        }
         let (key, modifiers) = (event.key, event.modifiers);
-        self.input(host, |w| w.key_pressed(host, key, modifiers))
+        if self.input(host, |w| w.key_pressed(host, key, modifiers)) {
+            return Flow::Cancel;
+        }
+        Flow::Continue
     }
 
     fn screen_char_typed_pre(
@@ -266,7 +276,13 @@ impl Hooks for AccountSwitcher {
         host: &dyn ClientHost,
         event: &mut ScreenCharTypedPreEvent<'_>,
     ) -> Flow {
+        if event.screen.id != MULTIPLAYER_SCREEN {
+            return Flow::Continue;
+        }
         let c = event.c;
-        self.input(host, |w| w.char_typed(host, c))
+        if self.input(host, |w| w.char_typed(host, c)) {
+            return Flow::Cancel;
+        }
+        Flow::Continue
     }
 }
