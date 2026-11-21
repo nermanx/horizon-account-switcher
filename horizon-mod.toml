@@ -1,0 +1,23 @@
+id = "account_switcher"
+name = "Account Switcher"
+version = "0.1.0"
+description = "Adds a button to the multiplayer server list to switch between saved offline nicknames, with one-click revert to your original profile."
+authors = []
+# A native mod: Rust in src/, compiled by the launcher against the game build [native] pins,
+# beside data/ and assets/ (both empty: this mod adds no blocks, items or other content).
+api = "0.2"
+side = "client"
+# No registry declarations of our own; kept for parity with the stock native template
+# (`cargo horizon-mod new --template native`), which requires this capability to build.
+capabilities = ["registries"]
+
+# IMPORTANT: these three pins MUST name a real Horizon build and are NOT filled in here.
+# Run, once, from this folder:
+#   cargo horizon-mod update
+# (or `cargo horizon-mod new . --template native --horizon <build>` into a scratch folder and
+# copy the generated [native] table here) to fetch the current pinned commit hashes before
+# building. See README.md "Building" for the full steps.
+[native]
+game = "26.3"
+horizon = "0000000000000000000000000000000000000000"
+mixins = "0000000000000000000000000000000000000000"

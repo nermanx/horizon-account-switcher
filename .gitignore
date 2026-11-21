@@ -15,3 +15,8 @@ target/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# The pinned Horizon SDK `cargo horizon-mod` fetches locally; never committed or packed.
+/.horizon/
+# The packaged .hmod build output.
+/target/horizon-mod/
