@@ -11,13 +11,12 @@ side = "client"
 # (`cargo horizon-mod new --template native`), which requires this capability to build.
 capabilities = ["registries"]
 
-# IMPORTANT: these three pins MUST name a real Horizon build and are NOT filled in here.
-# Run, once, from this folder:
-#   cargo horizon-mod update
-# (or `cargo horizon-mod new . --template native --horizon <build>` into a scratch folder and
-# copy the generated [native] table here) to fetch the current pinned commit hashes before
-# building. See README.md "Building" for the full steps.
+# Pinned to the Horizon Nightly build current when this was written and verified end to end
+# (`cargo horizon-mod build` -> a valid .hmod with a packed uses table, confirmed with
+# `cargo horizon-mod fits`: "made for"). Horizon's Nightly moves fast; if this falls behind,
+# repin with `cargo horizon-mod update` (now that the starting pin is valid, this works -- see
+# README.md "Build" for why a placeholder pin makes `update` itself fail).
 [native]
 game = "26.3"
-horizon = "0000000000000000000000000000000000000000"
-mixins = "0000000000000000000000000000000000000000"
+horizon = "f037744a79f9982c47876f49c5a3067279f88706"
+mixins = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"

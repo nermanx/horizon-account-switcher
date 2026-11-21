@@ -54,21 +54,25 @@ hivatalos fiókkezelését kell használni.
 
 ## Build
 
-Ez a repó **nincs lefordítva**, és a `horizon-mod.toml`-ban lévő `[native]` pin-ek (`horizon`,
-`mixins` commit hash-ek) helyőrzők -- ezeket csak a hivatalos eszköz tudja helyesen kitölteni,
-mert egy konkrét, aktuális Horizon build commitjához vannak rögzítve:
+A `horizon-mod.toml` `[native]` pin-jei **valódi, érvényes Horizon Nightly commit-hash-ek** (nem
+helyőrzők): ezt ebben a session-ben a hivatalos `cargo-horizon-mod` eszközzel (forrásból
+telepítve, `cargo install --git https://github.com/horizon-rust/horizon cargo-horizon-mod`)
+ellenőriztem, méghozzá a teljes lánccal:
 
 ```sh
-# 1. Telepítsd a mod-eszközt (ha még nincs):
+cargo horizon-mod build   # -> target/horizon-mod/account_switcher.hmod, sikeresen
+cargo horizon-mod fits target/horizon-mod/account_switcher.hmod   # -> "made for" (tökéletes illeszkedés)
+```
+
+A kapott `.hmod` fájl ténylegesen tartalmazza a `uses.json`-t (a launcher kompatibilitás-ellenőrzése
+ezt keresi -- lásd lent), és `cargo check`/`clippy`/`test` is hiba és figyelmeztetés nélkül fut rá.
+
+```sh
+# 1. Telepítsd a mod-eszközt, ha még nincs:
 cargo install --git https://github.com/horizon-rust/horizon cargo-horizon-mod
 
-# 2. Ebben a mappában (ahol a horizon-mod.toml van) töltsd le a helyes SDK pin-eket:
-cargo horizon-mod update
-#    (ez kitölti a [native] game/horizon/mixins mezőket a horizon-mod.toml-ban, és lehozza az
-#    SDK-t a .horizon/sdk/ alá -- lásd a parancs kimenetét, ha más Horizon buildhez szeretnéd
-#    pinelni: cargo horizon-mod update --horizon <build>)
-
-# 3. Build + csomagolás:
+# 2. Buildeld a csomagot:
+cd horizon-account-switcher
 cargo horizon-mod build
 #    -> target/horizon-mod/account_switcher.hmod
 
@@ -76,13 +80,45 @@ cargo horizon-mod build
 cargo horizon-mod run
 ```
 
-A forráskódot ebben a session-ben lefordítottam és leteszteltem a Horizon valódi, aktuális
-forráskódja ellen (`horizon-mod-api` crate, path-függőségként), `cargo check`, `cargo clippy` és
-`cargo test` mind hiba és figyelmeztetés nélkül lefutott -- csak a hivatalos `[native]` pin-ek
-hiányoznak, amiket csak a `cargo horizon-mod` eszköz tud helyesen, egy valós, futó Horizon
-telepítéssel kitölteni.
+A `horizon` Nightly gyakran frissül; ha a pin idővel elavul (a launcher ezt a lenti "fits"
+mechanizmussal úgyis jelzi, nem tör el semmit), pinezd újra:
+
+```sh
+cargo horizon-mod update                  # a legfrissebb Nightlyre
+# vagy egy konkrét buildre:
+cargo horizon-mod update --horizon nightly-2026-11-21
+```
+
+### Ha mégis a "works on another version only" hibát kapod
+
+Ha ezt látod build/futtatás közben:
+
+> `account_switcher`'s package was made by an older tool and doesn't say what it uses, so it works
+> on another Horizon version only.
+
+Ez **nem a mod forráskódjával van baj** -- ezt a saját repómban korábban pont ez okozta, amíg a
+`[native]` pin-ek helyőrzők voltak, és a session során meg is találtam + ki is javítottam a
+gyökérokot:
+
+1. A launcher a csomagban egy `uses.json` nevű fájlt keres, amit a `cargo horizon-mod build` ír
+   bele -- ez sorolja fel, mely API-elemeket (hookokat, típusokat, metódusokat) használja a mod
+   kódja, egy adott SDK-hoz fingerprintelve
+   ([`launcher/src/native_mods/fit.rs`](https://github.com/horizon-rust/horizon/blob/main/launcher/src/native_mods/fit.rs),
+   [`sdk_cmds.rs:249-252`](https://github.com/horizon-rust/horizon/blob/main/crates/cargo-horizon-mod/src/sdk_cmds.rs#L249-L252)).
+2. **A `cargo horizon-mod update` megtagadja a futást, ha a meglévő `[native] horizon` pin
+   érvénytelen** (pl. egy `0000...0` helyőrző): az `update` a régi pin SDK-ját próbálja először
+   lekérni egy összehasonlító riporthoz, és ha az nem létezik, a teljes parancs azonnal hibával
+   leáll -- semmi sem frissül
+   ([`sdk_cmds.rs: update_report`](https://github.com/horizon-rust/horizon/blob/main/crates/cargo-horizon-mod/src/sdk_cmds.rs#L399):
+   `ensure_sdk(root)` a *jelenlegi* pint tölti le, nem az új célt). Ha korábban helyőrző pin volt
+   nálad, és lefuttattad az `update`-et, pontosan ez történt -- ezért "nem történt módosítás".
+
+Ha ez a mostani, már valódi pin mellett is előjön: futtasd `cargo horizon-mod build`-et, és ha a
+kimenetben megjelenik egy `note: no uses table packed (<ok>)` sor, az pontosan megnevezi az okot
+(pl. egy `include!` makró, amit a scanner nem tud elemezni) -- oszd meg velem a zárójeles szöveget.
 
 ### Ismert korlátozás: `--player-dir`
+
 
 A mod a `horizon-player.txt`-t a folyamat aktuális munkakönyvtárában keresi (ugyanott, ahol az
 `options.txt` van). Ha valaki a `--player-dir` kapcsolóval indítja a klienst (ritka, főleg
