@@ -16,6 +16,7 @@
 
 use mod_api::{ClientHost, ConfigPath};
 
+use crate::player_name;
 use crate::sha256;
 
 /// One saved nickname.
@@ -144,4 +145,36 @@ pub fn save(host: &dyn ClientHost, profiles: &[Profile]) -> bool {
         .collect::<Vec<_>>()
         .join("\n");
     host.config_files().write(&path(), body.as_bytes()).is_ok()
+}
+
+/// [`load`], first capturing today's active name as the pinned `main` entry if the list has none
+/// yet. Call this before showing the list (not when saving a new name): it must run once, on the
+/// very first open, *before* the player types anything, so the entry it captures is the name that
+/// was already active -- never whatever the player happens to save first. A list that already has
+/// a `main` entry, or a still-empty `horizon-player.txt` (nothing to capture yet), is returned
+/// unchanged.
+///
+/// This can only ever capture the **offline** nickname `horizon-player.txt` held (see
+/// `player_name.rs`): the mod API has no way to read a signed-in Microsoft account's name (no
+/// `ClientHost` method exposes it, by design -- a mod cannot read a player's account identity).
+/// If the player is signed in, that account's name is what servers actually see regardless of
+/// this list (see the README); the captured entry is still the right "first row" for the common
+/// case of an offline-mode player who was not signed in when the mod first ran.
+pub fn ensure_main(host: &dyn ClientHost) -> Vec<Profile> {
+    let mut profiles = load(host);
+    if profiles.iter().any(|p| p.main) {
+        return profiles;
+    }
+    let Some(name) = player_name::read_active() else {
+        return profiles;
+    };
+    profiles.push(Profile {
+        name: name.clone(),
+        label: name,
+        main: true,
+        created_at_ms: 0,
+    });
+    save(host, &profiles);
+    profiles.sort_by_key(|p| (!p.main, p.created_at_ms));
+    profiles
 }

@@ -118,15 +118,17 @@ impl AccountSwitcher {
             } else if !player_name::is_valid_name(&typed) {
                 "Érvénytelen név: 1-16 karakter, csak betű, szám és \"_\".".to_owned()
             } else {
-                let mut profiles = profiles::load(host);
+                // `ensure_main` (called from `refresh`) already captured whatever name was
+                // active before this mod touched anything, so every name saved from here on is
+                // always a plain, non-main addition -- never mistaken for that original entry.
+                let mut profiles = profiles::ensure_main(host);
                 if profiles.iter().any(|p| p.name == typed) {
                     format!("\"{typed}\" már mentve van; lent váltható aktívra.")
                 } else {
-                    let main = profiles.is_empty();
                     profiles.push(profiles::Profile {
                         name: typed.clone(),
                         label: typed.clone(),
-                        main,
+                        main: false,
                         created_at_ms: host.millis(),
                     });
                     let saved = profiles::save(host, &profiles);

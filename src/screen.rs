@@ -52,7 +52,7 @@ impl AccountScreen {
             let is_active = active_name == Some(profile.name.as_str());
             let mut label = profile.label.clone();
             if profile.main {
-                label.push_str(" (eredeti)");
+                label.push_str(" (eredeti / fiók)");
             }
             if is_active {
                 label.push_str(" — aktív");
@@ -87,7 +87,7 @@ impl AccountScreen {
     /// Rebuilds from the profile store on disk (via `host`) and the currently active nickname,
     /// keeping `message`. Used the first time the screen opens and after every action.
     pub fn refresh(host: &dyn ClientHost, mut message: String) -> Self {
-        let profiles = profiles::load(host);
+        let profiles = profiles::ensure_main(host);
         let active = player_name::read_active();
         if active.is_none() {
             if !message.is_empty() {

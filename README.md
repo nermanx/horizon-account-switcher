@@ -22,13 +22,24 @@ róla: *"An edited name is used as it is"*
 A mod csak egy kényelmesebb felületet ad ugyanahhoz, amit eddig is kézzel, egy szövegszerkesztővel
 meg lehetett tenni.
 
+**Fontos korlát a "fő Microsoft-fiókos munkamenetről":** a mod API szándékosan **nem teszi
+elérhetővé modok számára a bejelentkezett Microsoft-fiók nevét vagy azonosítóját** (nincs ilyen
+`ClientHost` metódus -- ez adatvédelmi okból van így, a kódbázisban sehol nincs ilyen felület). Azt
+sem lehet futás közben váltani, hogy be vagy-e jelentkezve: ezt a launcher dönti el, mielőtt a
+játék folyamat egyáltalán elindul, egy már futó kliensen belül egy mod ezt nem tudja módosítani.
+Emiatt a lista legfelső, nem törölhető sora azt a nevet jelenti, **ami a mod első megnyitásakor
+már aktív volt** (a `horizon-player.txt`-ben) -- ha épp be voltál jelentkezve egy fiókkal, a
+kapcsolat attól függetlenül mindig a fiók nevét fogja használni, bármelyik sort is választod itt;
+ha nem voltál bejelentkezve, ez a sor pontosan az, amivel "alapból be voltál lépve" az offline
+módhoz, és bármikor, egy kattintással vissza lehet rá váltani.
+
 ## Hogyan működik
 
 | Rész | Mit csinál | Hol |
 | --- | --- | --- |
 | Gomb a szerverlistán | Egy "Fiókváltás" gomb a `multiplayer` képernyő jobb felső sarkában (`screen_render_post`/`screen_mouse_button_pressed_pre` hook-ok, `event.screen.id == "multiplayer"` -- ez az azonosító stabil, lásd [`multiplayer.rs:202`](https://github.com/horizon-rust/horizon/blob/main/crates/horizon-client/src/multiplayer.rs#L202)) | `src/lib.rs` |
 | Saját felület | Egy saját rajzolt overlay a `multiplayer` képernyő felett (`mod_api::client::widgets`: gombok, szövegmező), **nem** a `ClientHost::mod_screen_open` API-val -- az a dokumentációja szerint a címképernyő felett (így a szerverlista felett is) mindig `false`-t ad vissza, nem nyit semmit. A mod ezért saját állapotban (`Option<AccountScreen>`) tartja, hogy nyitva van-e, és minden egeret/billentyűt lenyel ezen a képernyőn, amíg nyitva van -- a widget-ek rajzolása/kezelése pontosan a Horizon SDK saját [`widget_screen.rs`](https://github.com/horizon-rust/horizon/blob/main/docs/modding/examples/src/widget_screen.rs) példájának mintáját követi | `src/lib.rs`, `src/screen.rs` |
-| Elmentett profilok | A mod saját, elkülönített tárolójában (`ClientHost::config_files()`, `config/account_switcher/profiles.txt`) -- nem ugyanaz, mint a motor saját `horizon-player.txt` fájlja | `src/profiles.rs` |
+| Elmentett profilok | A mod saját, elkülönített tárolójában (`ClientHost::config_files()`, `config/account_switcher/profiles.txt`) -- nem ugyanaz, mint a motor saját `horizon-player.txt` fájlja. **A lista első, nem törölhető sora mindig az a név, ami a mod legelső megnyitásakor már aktív volt** (`profiles::ensure_main`), nem az, amit a játékos elsőként beír -- minden újonnan mentett név ez alá kerül | `src/profiles.rs` |
 | Aktív név váltása | A `horizon-player.txt` felülírása (`name:<érték>\n`), amit a motor minden csatlakozás előtt újraolvas, ha nincs `--name`, `HORIZON_PLAYER_NAME` vagy bejelentkezett fiók ([`launch_options.rs:95`](https://github.com/horizon-rust/horizon/blob/main/crates/horizon-client/src/game/runtime/launch_options.rs#L95)) -- újraindítás nélkül, a következő "Join Server" kattintástól érvényes | `src/player_name.rs` |
 | Integritás-ellenőrzés | SHA-256 (saját, függőségmentes implementáció) | `src/sha256.rs` |
 
