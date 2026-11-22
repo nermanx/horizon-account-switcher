@@ -33,6 +33,31 @@ kapcsolat attól függetlenül mindig a fiók nevét fogja használni, bármelyi
 ha nem voltál bejelentkezve, ez a sor pontosan az, amivel "alapból be voltál lépve" az offline
 módhoz, és bármikor, egy kattintással vissza lehet rá váltani.
 
+### Hogy a névváltás ténylegesen hasson: jelentkezz ki a launcherben
+
+Ha a kliens indításakor be vagy jelentkezve egy Horizon/Microsoft-fiókkal a **launcherben**
+(nem a játékon belül), a kapcsolat **mindig** a fiók nevét küldi a szervernek, akármit is
+választasz ebben a modban -- ez nem hiba, hanem pontosan az a védelem, ami miatt senki nem tudja a
+*te* hitelesített fiókod nevét meghamisítani (lásd fent). Ez a launcher forráskódjában is így van:
+a kiválasztott fiók session-jét a launcher írja egy fájlba, és adja át a futó kliensnek, mielőtt az
+elindulna ([`account.rs: session_file`](https://github.com/horizon-rust/horizon/blob/main/launcher/src/account.rs)) --
+egy már futó klienshez csatlakozó mod ezen már nem tud változtatni.
+
+A mod csak akkor tud ténylegesen másik nevet használtatni a szerverrel, ha a launcher **offline**
+módban indítja a klienst (nincs kiválasztott fiók). Ehhez:
+
+1. Nyisd meg a Horizon launcher **Settings** oldalát, a **Microsoft accounts** részt.
+2. A jelenleg aktív (bejelentkezett) fiók sorában kattints a **"Play offline"** gombra
+   ([`blocks_settings.rs:621`](https://github.com/horizon-rust/horizon/blob/main/launcher/src/blocks_settings.rs#L621):
+   ez törli a kiválasztott fiókot, `accounts.selected = None`, így a következő indítás session
+   nélkül, offline megy).
+3. Indítsd el (vagy indítsd újra) a játékot -- innentől a mod gombja és a mentett nevek
+   ténylegesen megváltoztatják, milyen néven lépsz be a szerverekre.
+
+Ha visszaváltanál a saját, hitelesített fiókodra, ugyanitt (Settings > Microsoft accounts) a
+fiókod sorában a **"Play as"** gombbal teheted meg -- ez a launcher saját, hivatalos
+fiókkezelése, nem ez a mod hatásköre (lásd a bevezetőben).
+
 ## Hogyan működik
 
 | Rész | Mit csinál | Hol |

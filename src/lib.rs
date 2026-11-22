@@ -190,7 +190,13 @@ impl Hooks for AccountSwitcher {
             .draw
             .text("Account Switcher", [20.0, 16.0], 0xFFFF_FFFF, true);
         event.draw.text(
-            "Csak offline (cracked) szervereknél számít; bejelentkezett Microsoft-fiók vagy a --name kapcsoló felülírja. (Esc vagy Vissza bezárja.)",
+            "Csak akkor hat, ha a launcherben NEM vagy bejelentkezve (Settings > Accounts > \"Play offline\").",
+            [20.0, height - 54.0],
+            0xFF90_9090,
+            true,
+        );
+        event.draw.text(
+            "Bejelentkezve a fiókod neve mindig felülírja ezt. (Esc vagy Vissza bezárja.)",
             [20.0, height - 40.0],
             0xFF90_9090,
             true,
@@ -198,7 +204,7 @@ impl Hooks for AccountSwitcher {
         if !screen.message.is_empty() {
             event
                 .draw
-                .text(&screen.message, [20.0, height - 56.0], 0xFF80_FF80, true);
+                .text(&screen.message, [20.0, height - 68.0], 0xFF80_FF80, true);
         }
         let _ = screen.widgets.draw(&mut *event.draw, host, event.screen.mouse);
     }
